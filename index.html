@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
+    <title>Nöbet Çizelgesi Oluşturucu</title>
+    <style>
+        body {
+            padding: 20px;
+        }
+
+        .calendar {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+            grid-gap: 5px;
+        }
+
+        .day {
+            border: 1px solid #ddd;
+            padding: 10px;
+            text-align: center;
+        }
+
+        .form-group {
+            margin-bottom: 15px;
+        }
+
+        #nurseCreditsTable {
+            margin-top: 20px;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="container">
+        <h2 class="text-center mb-4">Nöbet Çizelgesi Oluşturucu</h2>
+
+        <form id="configForm">
+            <div class="form-group">
+                <label for="month">Ay:</label>
+                <select class="form-control" id="month"></select>
+            </div>
+            <div class="form-group">
+                <label for="year">Yıl:</label>
+                <input type="number" class="form-control" id="year" min="2023" value="2023">
+            </div>
+            <div class="form-group">
+                <label for="nurses">Nöbet Tutacak Hemşirelerin İsimleri (virgülle ayırın):</label>
+                <input type="text" class="form-control" id="nurses" placeholder="Örnek: Ayşe, Mehmet, Zeynep">
+            </div>
+            <button type="button" class="btn btn-primary btn-block" onclick="generateSchedule()">Nöbet Çizelgesi
+                Oluştur</button>
+
+            <button type="button" class="btn btn-info btn-block" onclick="showPreviousSchedules()">Önceki Çizelgeleri
+                Göster</button>
+        </form>
+
+        <div class="calendar" id="calendar"></div>
+
+        <div id="nurseCreditsTable"></div>
+    </div>
+
+    <script src="https://code.jquery.com/jquery-3.5.1.slim.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@popperjs/core@2.10.2/dist/umd/popper.min.js"></script>
+    <script src="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/js/bootstrap.min.js"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            var monthSelect = document.getElementById('month');
+
+            // Ay seçeneklerini oluştur
+            for (var i = 1; i <= 12; i++) {
+                var option = document.createElement('option');
+                option.value = i;
+                option.text = monthToString(i);
+                monthSelect.appendChild(option);
+            }
+        });
+
+        function monthToString(month) {
+            var options = { month: 'long' };
+            return new Date(2023, month - 1, 1).toLocaleDateString('tr-TR', options);
+        }
+
+        function generateSchedule() {
+            var calendar = document.getElementById('calendar');
+            var nurseCreditsTable = document.getElementById('nurseCreditsTable');
+            calendar.innerHTML = ''; // Önceki içeriği temizle
+            nurseCreditsTable.innerHTML = ''; // Hemşire kredi tablosu içeriğini temizle
+
+            var month = document.getElementById('month').value;
+            var year = document.getElementById('year').value;
+            var nurses = document.getElementById('nurses').value.split(',').map(name => name.trim());
+
+            var daysInMonth = new Date(year, month, 0).getDate();
+            var nurseCredits = {}; // Hemşirelerin tuttukları nöbet sayısını takip etmek için bir obje
+            var nurseNextShifts = {}; // Her hemşirenin bir sonraki nöbet gününü takip etmek için bir obje
+
+            var nurseIndexes = generateUniqueRandomIndexes(nurses.length, 2);
+
+            for (var i = 1; i <= daysInMonth; i++) {
+                var day = document.createElement('div');
+                day.className = 'day';
+
+                var currentDate = new Date(year, month - 1, i);
+                var dayNumber = currentDate.getDate();
+                // Tarihin yanında gün adını gösterme
+                day.textContent = dayNumber;
+
+                for (var j = 0; j < 2; j++) {
+                    var nurseIndex = nurseIndexes[j];
+                    var nurseName = nurses[nurseIndex];
+
+                    if (!nurseCredits[nurseName]) {
+                        nurseCredits[nurseName] = 0;
+                    }
+
+                    var nurseInput = document.createElement('div');
+                    nurseInput.textContent = nurseName;
+
+                    var credit = calculateCredit(i);
+                    if (
+                        nurseCredits[nurseName] + credit <= 16 &&
+                        (!nurseNextShifts[nurseName] || i - nurseNextShifts[nurseName] >= 2)
+                    ) {
+                        nurseCredits[nurseName] += credit;
+                        nurseNextShifts[nurseName] = i;
+                    } else {
+                        nurseInput.textContent = findAvailableNurse(nurses, nurseCredits, nurseNextShifts, credit, i);
+                    }
+
+                    day.appendChild(nurseInput);
+                }
+
+                calendar.appendChild(day);
+                nurseIndexes[0] = (nurseIndexes[0] + 2) % nurses.length;
+                nurseIndexes[1] = (nurseIndexes[1] + 2) % nurses.length;
+            }
+
+            var table = document.createElement('table');
+            table.className = 'table table-bordered';
+            table.innerHTML = '<thead><tr><th>Hemşire</th><th>Kredi</th></tr></thead><tbody>';
+
+            for (var i = 0; i < nurses.length; i++) {
+                var nurseName = nurses[i];
+                var credit = nurseCredits[nurseName] || 0;
+                table.innerHTML += '<tr><td>' + nurseName + '</td><td>' + credit + '</td></tr>';
+            }
+
+            table.innerHTML += '</tbody>';
+            nurseCreditsTable.appendChild(table);
+
+            saveScheduleToLocalStorage(nurses, month, year, nurseCredits);
+        }
+
+        function calculateCredit(day) {
+            var dayOfWeek = new Date(2023, 0, day).getDay();
+            return (dayOfWeek === 0) ? 2 : ((dayOfWeek === 6) ? 3 : 1);
+        }
+
+        function generateUniqueRandomIndexes(max, count) {
+            var indexes = [];
+            while (indexes.length < count) {
+                var randomIndex = Math.floor(Math.random() * max);
+                if (indexes.indexOf(randomIndex) === -1) {
+                    indexes.push(randomIndex);
+                }
+            }
+            return indexes;
+        }
+
+        function findAvailableNurse(nurses, nurseCredits, nurseNextShifts, credit, currentDay) {
+            for (var i = 0; i < nurses.length; i++) {
+                var nurseName = nurses[i];
+                if (
+                    (!nurseCredits[nurseName] || nurseCredits[nurseName] + credit <= 16) &&
+                    (!nurseNextShifts[nurseName] || currentDay - nurseNextShifts[nurseName] >= 2) &&
+                    !isNurseScheduledForNextDay(nurseName, nurseNextShifts, currentDay)
+                ) {
+                    nurseCredits[nurseName] = (nurseCredits[nurseName] || 0) + credit;
+                    nurseNextShifts[nurseName] = currentDay;
+                    return nurseName;
+                }
+            }
+
+            // Eğer nöbet yazılmamış bir hemşire varsa ve bu hemşireye henüz hiç kredi verilmemişse,
+            // en az 4 nöbet verelim.
+            var unscheduledNurse = getUnscheduledNurse(nurses, nurseCredits, nurseNextShifts);
+            if (unscheduledNurse && !nurseCredits[unscheduledNurse]) {
+                for (var i = 0; i < 4; i++) {
+                    nurseCredits[unscheduledNurse] = (nurseCredits[unscheduledNurse] || 0) + credit;
+                }
+                return unscheduledNurse;
+            }
+
+            return '';
+        }
+
+        function getUnscheduledNurse(nurses, nurseCredits, nurseNextShifts) {
+            for (var i = 0; i < nurses.length; i++) {
+                var nurseName = nurses[i];
+                if (!nurseNextShifts[nurseName]) {
+                    return nurseName;
+                }
+            }
+            return null;
+        }
+
+        function isNurseScheduledForNextDay(nurseName, nurseNextShifts, currentDay) {
+            return nurseNextShifts[nurseName] && currentDay - nurseNextShifts[nurseName] === 1;
+        }
+
+        function exportToExcel() {
+            console.log('Excel\'e aktarma işlemi burada gerçekleştirilecek.');
+        }
+
+        function saveScheduleToLocalStorage(nurses, month, year, nurseCredits) {
+            var schedules = JSON.parse(localStorage.getItem('schedules')) || [];
+            schedules.push({
+                nurses: nurses,
+                month: month,
+                year: year,
+                nurseCredits: nurseCredits
+            });
+            localStorage.setItem('schedules', JSON.stringify(schedules));
+        }
+
+        function showPreviousSchedules() {
+            var schedules = JSON.parse(localStorage.getItem('schedules')) || [];
+            if (schedules.length === 0) {
+                alert('Önceki çizelge bulunamadı.');
+                return;
+            }
+
+            var modalContent = '<h5 class="mb-4">Önceki Çizelgeler</h5>';
+            for (var i = 0; i < schedules.length; i++) {
+                var schedule = schedules[i];
+                modalContent += '<h6>' + schedule.month + '/' + schedule.year + '</h6>';
+                modalContent += '<table class="table table-bordered"><thead><tr><th>Hemşire</th><th>Kredi</th></tr></thead><tbody>';
+                for (var j = 0; j < schedule.nurses.length; j++) {
+                    var nurseName = schedule.nurses[j];
+                    var credit = schedule.nurseCredits[nurseName] || 0;
+                    modalContent += '<tr><td>' + nurseName + '</td><td>' + credit + '</td></tr>';
+                }
+                modalContent += '</tbody></table>';
+            }
+
+            var modal = '<div class="modal fade" id="previousSchedulesModal" tabindex="-1" role="dialog" aria-labelledby="exampleModalLabel" aria-hidden="true">';
+            modal += '<div class="modal-dialog" role="document"><div class="modal-content"><div class="modal-body">';
+            modal += modalContent;
+            modal += '</div><div class="modal-footer">';
+            modal += '<button type="button" class="btn btn-secondary" data-dismiss="modal">Kapat</button>';
+            modal += '</div></div></div></div>';
+
+            document.body.insertAdjacentHTML('beforeend', modal);
+            $('#previousSchedulesModal').modal('show');
+        }
+    </script>
+
+</body>
+
+</html>
